@@ -1,0 +1,16 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+
+# Ignore all generated data and results
+/data/**
+/results/**
+
+# Keep directory placeholders under data and results
+!/data/**/
+!/results/**/
+!/data/**/.gitkeep
+!/results/**/.gitkeep

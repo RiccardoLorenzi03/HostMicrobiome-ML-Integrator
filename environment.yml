@@ -1,0 +1,11 @@
+name: hostmicrobiome-ml-integrator
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pandas
+  - numpy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - shap
