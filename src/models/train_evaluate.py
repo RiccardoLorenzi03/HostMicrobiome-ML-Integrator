@@ -7,13 +7,21 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, recall_score, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
 
-def train_and_evaluate(input_path: str, metadata_path: str, model_out: str, metrics_out: str, dataset_name: str) -> None:
+def train_and_evaluate(
+    input_path: str,
+    metadata_path: str,
+    model_out: str,
+    metrics_out: str,
+    dataset_name: str,
+    target_col: str = "study_condition",
+    control_val: str = "control"
+) -> None:
     df_features = pd.read_csv(input_path, index_col=0)
     df_meta = pd.read_csv(metadata_path, index_col=0)
 
     common_samples = df_features.index.intersection(df_meta.index)
     X = df_features.loc[common_samples]
-    y = (df_meta.loc[common_samples, 'study_condition'] != 'control').astype(int).values
+    y = (df_meta.loc[common_samples, target_col] != control_val).astype(int).values
 
     rf = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
@@ -56,15 +64,25 @@ def train_and_evaluate(input_path: str, metadata_path: str, model_out: str, metr
     joblib.dump((rf, X.columns.tolist(), X), model_out)
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--metadata", required=True)
-    parser.add_argument("--model-out", required=True)
-    parser.add_argument("--metrics-out", required=True)
-    parser.add_argument("--dataset-name", required=True)
+    parser = argparse.ArgumentParser(description="Train and evaluate ML model on omics data.")
+    parser.add_argument("--input", required=True, help="Path to CLR-transformed feature CSV")
+    parser.add_argument("--metadata", required=True, help="Path to metadata CSV")
+    parser.add_argument("--model-out", required=True, help="Path to save trained model .pkl")
+    parser.add_argument("--metrics-out", required=True, help="Path to save metrics summary CSV")
+    parser.add_argument("--dataset-name", required=True, help="Name of the dataset/cohort")
+    parser.add_argument("--target-col", default="study_condition", help="Metadata column name for phenotype")
+    parser.add_argument("--control-val", default="control", help="Value representing healthy control group")
     args = parser.parse_args()
 
-    train_and_evaluate(args.input, args.metadata, args.model_out, args.metrics_out, args.dataset_name)
+    train_and_evaluate(
+        args.input,
+        args.metadata,
+        args.model_out,
+        args.metrics_out,
+        args.dataset_name,
+        args.target_col,
+        args.control_val
+    )
 
 if __name__ == "__main__":
     main()
