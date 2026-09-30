@@ -2,6 +2,7 @@ data/raw/*
 data/processed/*
 !data/metadata/dummy_metadata.csv
 results/*
+!results/tables/*.csv
 !results/figures/*.png
 !results/.gitkeep
 *.log

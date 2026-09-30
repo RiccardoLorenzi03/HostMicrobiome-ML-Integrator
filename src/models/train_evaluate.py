@@ -1,38 +1,70 @@
-import pandas as pd
-import numpy as np
 import argparse
 import os
 import joblib
+import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, recall_score, confusion_matrix
+from sklearn.model_selection import StratifiedKFold
 
-def train_model(input_path, model_output_path):
-    print(f"Caricamento dati trasformati da {input_path}...")
-    df = pd.read_csv(input_path, index_col=0)
-    
-    # Generazione target fittizio binario (es. 0=Sano, 1=Patologia) per testare la pipeline
-    np.random.seed(42)
-    y = np.random.choice([0, 1], size=len(df))
-    X = df.values
+def train_and_evaluate(input_path: str, metadata_path: str, model_out: str, metrics_out: str, dataset_name: str) -> None:
+    df_features = pd.read_csv(input_path, index_col=0)
+    df_meta = pd.read_csv(metadata_path, index_col=0)
 
-    print(f"Addestramento Random Forest su {X.shape[0]} campioni e {X.shape[1]} feature...")
-    rf = RandomForestClassifier(n_estimators=100, max_depth=3, random_state=42)
-    
-    # Stratified K-Fold per contrastare overfitting in regime p >> n
-    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-    scores = cross_val_score(rf, X, y, cv=cv, scoring='roc_auc')
-    print(f"ROC-AUC medio in Cross-Validation: {scores.mean():.3f} (+/- {scores.std():.3f})")
+    common_samples = df_features.index.intersection(df_meta.index)
+    X = df_features.loc[common_samples]
+    y = (df_meta.loc[common_samples, 'study_condition'] != 'control').astype(int).values
 
-    rf.fit(X, y)
-    
-    os.makedirs(os.path.dirname(model_output_path), exist_ok=True)
-    joblib.dump((rf, df.columns.tolist()), model_output_path)
-    print(f"Modello salvato con successo in {model_output_path}")
+    rf = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Addestra un modello ML su dati omici.")
-    parser.add_argument("--input", type=str, required=True, help="Path CSV dati processati.")
-    parser.add_argument("--output", type=str, required=True, help="Path salvataggio modello .pkl.")
+    metrics = {'auc': [], 'acc': [], 'f1': [], 'sens': [], 'spec': []}
+
+    for train_idx, val_idx in cv.split(X.values, y):
+        X_tr, X_va = X.values[train_idx], X.values[val_idx]
+        y_tr, y_va = y[train_idx], y[val_idx]
+
+        rf.fit(X_tr, y_tr)
+        preds = rf.predict(X_va)
+        probs = rf.predict_proba(X_va)[:, 1]
+
+        metrics['auc'].append(roc_auc_score(y_va, probs))
+        metrics['acc'].append(accuracy_score(y_va, preds))
+        metrics['f1'].append(f1_score(y_va, preds))
+        metrics['sens'].append(recall_score(y_va, preds))
+
+        tn, fp, fn, tp = confusion_matrix(y_va, preds).ravel()
+        metrics['spec'].append(tn / (tn + fp))
+
+    print(f"[INFO] Cohort '{dataset_name}' | ROC-AUC: {np.mean(metrics['auc']):.3f} ± {np.std(metrics['auc']):.3f} | F1: {np.mean(metrics['f1']):.3f}")
+
+    res_df = pd.DataFrame([{
+        'Dataset': dataset_name,
+        'ROC_AUC_Mean': np.mean(metrics['auc']),
+        'ROC_AUC_Std': np.std(metrics['auc']),
+        'Accuracy': np.mean(metrics['acc']),
+        'F1_Score': np.mean(metrics['f1']),
+        'Sensitivity': np.mean(metrics['sens']),
+        'Specificity': np.mean(metrics['spec'])
+    }])
+
+    os.makedirs(os.path.dirname(metrics_out), exist_ok=True)
+    res_df.to_csv(metrics_out, mode='a' if os.path.exists(metrics_out) else 'w', header=not os.path.exists(metrics_out), index=False)
+
+    rf.fit(X.values, y)
+    os.makedirs(os.path.dirname(model_out), exist_ok=True)
+    joblib.dump((rf, X.columns.tolist(), X), model_out)
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--metadata", required=True)
+    parser.add_argument("--model-out", required=True)
+    parser.add_argument("--metrics-out", required=True)
+    parser.add_argument("--dataset-name", required=True)
     args = parser.parse_args()
 
-    train_model(args.input, args.output)
+    train_and_evaluate(args.input, args.metadata, args.model_out, args.metrics_out, args.dataset_name)
+
+if __name__ == "__main__":
+    main()
